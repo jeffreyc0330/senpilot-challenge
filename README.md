@@ -153,6 +153,62 @@ The ZIP file is attached to the reply.
 
 ---
 
+## Docker Deployment
+
+### Overview
+
+The agent ships as a Docker container. Because Gmail OAuth2 requires a one-time
+interactive browser authorisation, you run that step locally first and bake the
+resulting `token.json` into the image.
+
+### Step-by-step
+
+**1. Complete Gmail API setup (see Setup section above) and run auth once locally:**
+
+```bash
+pip install -r requirements.txt   # only needed for this step
+python auth.py
+```
+
+A browser window will open. Log in as the agent Gmail account and grant access.
+This creates `token.json` in the project root.
+
+**2. Create your `.env` file:**
+
+```bash
+cp .env.example .env
+# edit .env with your values
+```
+
+**3. Build the Docker image:**
+
+```bash
+docker build -t senpilot-agent .
+```
+
+This bundles `credentials.json` and `token.json` into the image so the container
+starts without any browser interaction.
+
+**4. Run the container:**
+
+```bash
+docker run --env-file .env senpilot-agent
+```
+
+### Deploying to Railway (recommended)
+
+1. Push this repo to GitHub
+2. Go to [railway.app](https://railway.app) → New Project → Deploy from GitHub repo
+3. Railway detects the `Dockerfile` automatically
+4. Add your environment variables in the Railway dashboard (same keys as `.env`)
+5. Deploy — Railway keeps the container running 24/7
+
+> **Token refresh:** `token.json` contains a refresh token so it stays valid
+> indefinitely without re-running `auth.py`. If it ever expires, run `auth.py`
+> locally again and redeploy.
+
+---
+
 ## Notes
 
 - Downloads are saved to `DOWNLOAD_DIR/{matter_number}/` (default `/tmp/senpilot/M12205/`)
