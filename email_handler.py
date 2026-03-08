@@ -1,6 +1,6 @@
 import base64
+import logging
 import os
-import mimetypes
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -12,7 +12,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 from config import GMAIL_CREDENTIALS_PATH, GMAIL_TOKEN_PATH, GMAIL_SCOPES
-from parser import parse_request
+
+logger = logging.getLogger(__name__)
 
 
 def get_gmail_service():
@@ -24,19 +25,19 @@ def get_gmail_service():
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            print("[email] Refreshing expired credentials...")
+            logger.info("Refreshing expired credentials...")
             creds.refresh(Request())
         else:
-            print("[email] Starting OAuth2 flow — a browser window will open...")
+            logger.info("Starting OAuth2 flow — a browser window will open...")
             flow = InstalledAppFlow.from_client_secrets_file(GMAIL_CREDENTIALS_PATH, GMAIL_SCOPES)
             creds = flow.run_local_server(port=0)
 
         with open(GMAIL_TOKEN_PATH, "w") as token_file:
             token_file.write(creds.to_json())
-        print(f"[email] Token saved to {GMAIL_TOKEN_PATH}")
+        logger.info("Token saved to %s", GMAIL_TOKEN_PATH)
 
     service = build("gmail", "v1", credentials=creds)
-    print("[email] Gmail service authenticated successfully.")
+    logger.info("Gmail service authenticated successfully.")
     return service
 
 
@@ -47,7 +48,7 @@ def get_unread_emails(service):
     Returns a list of message dicts with keys:
         id, thread_id, sender, sender_name, subject, body, raw_message
     """
-    print("[email] Checking for unread emails...")
+    logger.info("Checking for unread emails...")
     results = service.users().messages().list(
         userId="me",
         labelIds=["INBOX", "UNREAD"],
@@ -56,10 +57,10 @@ def get_unread_emails(service):
 
     messages = results.get("messages", [])
     if not messages:
-        print("[email] No unread emails found.")
+        logger.info("No unread emails found.")
         return []
 
-    print(f"[email] Found {len(messages)} unread email(s).")
+    logger.info("Found %d unread email(s).", len(messages))
     emails = []
 
     for msg_ref in messages:
@@ -116,7 +117,7 @@ def mark_as_read(service, msg_id: str):
         id=msg_id,
         body={"removeLabelIds": ["UNREAD"]},
     ).execute()
-    print(f"[email] Marked message {msg_id} as read.")
+    logger.info("Marked message %s as read.", msg_id)
 
 
 def send_reply(service, to: str, subject: str, body: str, zip_path: str = None):
@@ -140,7 +141,7 @@ def send_reply(service, to: str, subject: str, body: str, zip_path: str = None):
 
     if zip_path and os.path.exists(zip_path):
         filename = os.path.basename(zip_path)
-        print(f"[email] Attaching ZIP: {filename} ({os.path.getsize(zip_path)} bytes)")
+        logger.info("Attaching ZIP: %s (%d bytes)", filename, os.path.getsize(zip_path))
         with open(zip_path, "rb") as f:
             part = MIMEBase("application", "zip")
             part.set_payload(f.read())
@@ -153,4 +154,4 @@ def send_reply(service, to: str, subject: str, body: str, zip_path: str = None):
         userId="me",
         body={"raw": raw},
     ).execute()
-    print(f"[email] Reply sent to {to} with subject '{subject}'.")
+    logger.info("Reply sent to %s with subject '%s'.", to, subject)

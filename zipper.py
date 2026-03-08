@@ -2,11 +2,14 @@
 zipper.py — compress a list of files into a ZIP archive.
 """
 
+import logging
 import os
 import zipfile
 from pathlib import Path
 
 from config import DOWNLOAD_DIR
+
+logger = logging.getLogger(__name__)
 
 
 def compress_files(file_paths: list, output_path: str) -> str:
@@ -24,18 +27,18 @@ def compress_files(file_paths: list, output_path: str) -> str:
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    print(f"[zipper] Creating ZIP: {output_path}")
+    logger.info("Creating ZIP: %s", output_path)
     with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for fp in file_paths:
             if not os.path.exists(fp):
-                print(f"[zipper] Warning: file not found, skipping: {fp}")
+                logger.warning("File not found, skipping: %s", fp)
                 continue
             arcname = os.path.basename(fp)
             zf.write(fp, arcname=arcname)
-            print(f"[zipper]   Added: {arcname}")
+            logger.info("Added: %s", arcname)
 
     size_kb = os.path.getsize(output_path) / 1024
-    print(f"[zipper] ZIP created: {output_path} ({size_kb:.1f} KB)")
+    logger.info("ZIP created: %s (%.1f KB)", output_path, size_kb)
     return output_path
 
 

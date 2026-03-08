@@ -7,7 +7,7 @@ and replies to the sender with the ZIP attached.
 """
 
 import asyncio
-import time
+import logging
 from datetime import datetime
 
 from config import AGENT_EMAIL, POLL_INTERVAL
@@ -15,6 +15,13 @@ from email_handler import get_gmail_service, get_unread_emails, mark_as_read, se
 from parser import parse_request
 from scraper import fetch_documents
 from zipper import compress_files, make_zip_path
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 
 def _format_date(date_str: str) -> str:
@@ -108,14 +115,13 @@ async def process_email(service, email: dict) -> None:
     body = email["body"]
     msg_id = email["id"]
 
-    print(f"\n[main] Processing email from {sender} | Subject: {subject}")
-    print(f"[main] Body preview: {body[:200]!r}")
+    logger.info("Processing email from %s | Subject: %s", sender, subject)
 
     # Step 1: Parse the request
     try:
         request = parse_request(body)
     except ValueError as e:
-        print(f"[main] Parse error: {e}")
+        logger.warning("Parse error: %s", e)
         send_reply(service, sender, subject, str(e))
         mark_as_read(service, msg_id)
         return
@@ -128,7 +134,7 @@ async def process_email(service, email: dict) -> None:
         result = await fetch_documents(matter_number, doc_type)
     except Exception as e:
         error_msg = f"Sorry, I encountered an error while scraping the UARB portal: {e}"
-        print(f"[main] Scraper error: {e}")
+        logger.error("Scraper error: %s", e)
         send_reply(service, sender, subject, error_msg)
         mark_as_read(service, msg_id)
         return
@@ -153,7 +159,7 @@ async def process_email(service, email: dict) -> None:
         compress_files(file_paths, zip_path)
     except Exception as e:
         error_msg = f"Sorry, I encountered an error while creating the ZIP archive: {e}"
-        print(f"[main] ZIP error: {e}")
+        logger.error("ZIP error: %s", e)
         send_reply(service, sender, subject, error_msg)
         mark_as_read(service, msg_id)
         return
@@ -167,22 +173,21 @@ async def process_email(service, email: dict) -> None:
         counts=counts,
         n_downloaded=len(file_paths),
     )
-    print(f"[main] Reply body:\n{reply_body}")
 
     try:
         send_reply(service, sender, subject, reply_body, zip_path=zip_path)
     except Exception as e:
-        print(f"[main] Error sending reply: {e}")
+        logger.error("Error sending reply: %s", e)
 
     # Step 5: Mark as read
     mark_as_read(service, msg_id)
-    print(f"[main] Done processing email from {sender}.")
+    logger.info("Done processing email from %s.", sender)
 
 
 async def poll_loop():
     """Main polling loop — runs forever, checking inbox every POLL_INTERVAL seconds."""
-    print(f"[main] Agent running, monitoring {AGENT_EMAIL}...")
-    print(f"[main] Poll interval: {POLL_INTERVAL}s")
+    logger.info("Agent running, monitoring %s...", AGENT_EMAIL)
+    logger.info("Poll interval: %ss", POLL_INTERVAL)
 
     service = get_gmail_service()
 
@@ -193,9 +198,7 @@ async def poll_loop():
                 try:
                     await process_email(service, email)
                 except Exception as e:
-                    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    print(f"[{ts}] [main] Unhandled error processing email {email['id']}: {e}")
-                    # Attempt to send an error reply
+                    logger.error("Unhandled error processing email %s: %s", email["id"], e)
                     try:
                         send_reply(
                             service,
@@ -205,13 +208,12 @@ async def poll_loop():
                         )
                         mark_as_read(service, email["id"])
                     except Exception as reply_err:
-                        print(f"[main] Could not send error reply: {reply_err}")
+                        logger.error("Could not send error reply: %s", reply_err)
 
         except Exception as poll_err:
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            print(f"[{ts}] [main] Error during poll: {poll_err}")
+            logger.error("Error during poll: %s", poll_err)
 
-        print(f"[main] Sleeping {POLL_INTERVAL}s before next poll...")
+        logger.info("Sleeping %ss before next poll...", POLL_INTERVAL)
         await asyncio.sleep(POLL_INTERVAL)
 
 

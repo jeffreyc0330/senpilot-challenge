@@ -1,5 +1,7 @@
+import logging
 import re
 
+logger = logging.getLogger(__name__)
 
 # Map of lowercase keywords -> canonical document type names
 DOC_TYPE_MAP = {
@@ -48,5 +50,5 @@ def parse_request(text: str) -> dict:
             "Please specify one of: Exhibits, Key Documents, Other Documents, Transcripts, or Recordings."
         )
 
-    print(f"[parser] Parsed request: matter_number={matter_number}, doc_type={doc_type}")
+    logger.info("Parsed request: matter_number=%s, doc_type=%s", matter_number, doc_type)
     return {"matter_number": matter_number, "doc_type": doc_type}

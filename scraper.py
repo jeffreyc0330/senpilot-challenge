@@ -8,14 +8,16 @@ This will run against M12205 / "Other Documents" and print results.
 """
 
 import asyncio
+import logging
 import os
 import re
-import shutil
 from pathlib import Path
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
 from config import UARB_URL, DOWNLOAD_DIR, MAX_DOCS
+
+logger = logging.getLogger(__name__)
 
 
 async def fetch_documents(matter_number: str, doc_type: str, max_docs: int = MAX_DOCS) -> dict:
@@ -36,7 +38,7 @@ async def fetch_documents(matter_number: str, doc_type: str, max_docs: int = MAX
     """
     download_dir = Path(DOWNLOAD_DIR) / matter_number
     download_dir.mkdir(parents=True, exist_ok=True)
-    print(f"[scraper] Download directory: {download_dir}")
+    logger.info("Download directory: %s", download_dir)
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
@@ -47,41 +49,41 @@ async def fetch_documents(matter_number: str, doc_type: str, max_docs: int = MAX
         page = await context.new_page()
 
         # ── Page 1: Landing page ──────────────────────────────────────────────
-        print(f"[scraper] Navigating to {UARB_URL} ...")
+        logger.info("Navigating to %s ...", UARB_URL)
         await page.goto(UARB_URL, wait_until="networkidle", timeout=60_000)
-        print("[scraper] Landing page loaded.")
+        logger.info("Landing page loaded.")
 
         # Wait for the "Go Directly to Matter" input
         matter_input = page.locator('input[placeholder*="M01234"], input[placeholder*="eg M"]').first
         await matter_input.wait_for(state="visible", timeout=30_000)
-        print(f"[scraper] Typing matter number: {matter_number}")
+        logger.info("Typing matter number: %s", matter_number)
         await matter_input.click()
         await matter_input.fill(matter_number)
 
         # Click the Search button next to the input
         search_btn = page.get_by_role("button", name=re.compile(r"search", re.IGNORECASE)).first
         await search_btn.click()
-        print("[scraper] Clicked Search — waiting for matter detail page...")
+        logger.info("Clicked Search — waiting for matter detail page...")
 
         await page.wait_for_load_state("networkidle", timeout=60_000)
-        print("[scraper] Matter detail page loaded.")
+        logger.info("Matter detail page loaded.")
 
         # ── Page 2: Matter Detail — extract header metadata ───────────────────
         metadata = await _extract_metadata(page)
-        print(f"[scraper] Metadata extracted: {metadata}")
+        logger.info("Metadata extracted: %s", metadata)
 
         # ── Parse tab counts ──────────────────────────────────────────────────
         counts = await _extract_tab_counts(page)
-        print(f"[scraper] Tab counts: {counts}")
+        logger.info("Tab counts: %s", counts)
 
         # ── Click the requested tab ───────────────────────────────────────────
         await _click_tab(page, doc_type)
-        print(f"[scraper] Clicked tab: {doc_type}")
+        logger.info("Clicked tab: %s", doc_type)
         await page.wait_for_load_state("networkidle", timeout=30_000)
 
         # ── Download documents ────────────────────────────────────────────────
         file_paths = await _download_documents(page, context, download_dir, max_docs)
-        print(f"[scraper] Downloaded {len(file_paths)} file(s).")
+        logger.info("Downloaded %d file(s).", len(file_paths))
 
         await browser.close()
 
@@ -170,7 +172,7 @@ async def _extract_tab_counts(page) -> dict:
             except Exception:
                 continue
     except Exception as e:
-        print(f"[scraper] Warning: could not extract tab counts: {e}")
+        logger.warning("Could not extract tab counts: %s", e)
 
     return counts
 
@@ -192,7 +194,7 @@ async def _click_tab(page, doc_type: str):
         el = page.locator(f'text="{doc_type}"').first
         await el.click(timeout=10_000)
     except Exception as e:
-        print(f"[scraper] Warning: could not click tab '{doc_type}': {e}")
+        logger.warning("Could not click tab '%s': %s", doc_type, e)
 
 
 async def _download_documents(page, context, download_dir: Path, max_docs: int) -> list:
@@ -208,10 +210,10 @@ async def _download_documents(page, context, download_dir: Path, max_docs: int) 
     buttons = await page.locator('button:has-text("GO GET IT"), a:has-text("GO GET IT")').all()
     total_available = len(buttons)
     to_download = min(total_available, max_docs)
-    print(f"[scraper] Found {total_available} 'GO GET IT' button(s). Will download {to_download}.")
+    logger.info("Found %d 'GO GET IT' button(s). Will download %d.", total_available, to_download)
 
     for i in range(to_download):
-        print(f"[scraper] Downloading document {i + 1} of {to_download}...")
+        logger.info("Downloading document %d of %d...", i + 1, to_download)
         try:
             # Re-query buttons each iteration because FileMaker re-renders the DOM
             current_buttons = await page.locator(
@@ -219,7 +221,7 @@ async def _download_documents(page, context, download_dir: Path, max_docs: int) 
             ).all()
 
             if i >= len(current_buttons):
-                print(f"[scraper] No button at index {i} — stopping.")
+                logger.warning("No button at index %d — stopping.", i)
                 break
 
             btn = current_buttons[i]
@@ -234,10 +236,10 @@ async def _download_documents(page, context, download_dir: Path, max_docs: int) 
 
             await download.save_as(str(dest))
             file_paths.append(dest)
-            print(f"[scraper]   Saved: {dest}")
+            logger.info("Saved: %s", dest)
 
         except PlaywrightTimeoutError:
-            print(f"[scraper]   Download {i + 1} timed out — retrying once after 2s...")
+            logger.warning("Download %d timed out — retrying once after 2s...", i + 1)
             await asyncio.sleep(2)
             try:
                 current_buttons = await page.locator(
@@ -251,14 +253,14 @@ async def _download_documents(page, context, download_dir: Path, max_docs: int) 
                     dest = download_dir / suggested_name
                     await download.save_as(str(dest))
                     file_paths.append(dest)
-                    print(f"[scraper]   Saved (retry): {dest}")
+                    logger.info("Saved (retry): %s", dest)
                 else:
-                    print(f"[scraper]   No button at index {i} after retry — skipping.")
+                    logger.warning("No button at index %d after retry — skipping.", i)
             except Exception as retry_err:
-                print(f"[scraper]   Retry failed for document {i + 1}: {retry_err}")
+                logger.error("Retry failed for document %d: %s", i + 1, retry_err)
 
         except Exception as e:
-            print(f"[scraper]   Error downloading document {i + 1}: {e}")
+            logger.error("Error downloading document %d: %s", i + 1, e)
 
     return file_paths
 
@@ -267,6 +269,8 @@ async def _download_documents(page, context, download_dir: Path, max_docs: int) 
 
 if __name__ == "__main__":
     import json
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 
     async def main():
         matter = "M12205"
